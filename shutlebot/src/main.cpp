@@ -351,20 +351,31 @@ void serviceLineFollow() {
     return;
   }
 
+  constexpr float LINE_CENTER_INDEX = 8.0f;
+  constexpr float LINE_CENTER_DEADBAND = 1.0f;
+  constexpr float LINE_CORRECTION_GAIN = 0.06f;
+  constexpr float LINE_CORRECTION_MAX = 0.35f;
+
   uint8_t activeCount = 0;
-  uint16_t weightedIndex = 0;
+  float weightedIndex = 0.0f;
 
   for (uint8_t index = 0; index < 32; ++index) {
     if (merged & (1UL << index)) {
       ++activeCount;
-      weightedIndex += index;
+      weightedIndex += static_cast<float>(index % 16);
     }
   }
 
   float center = static_cast<float>(weightedIndex) / activeCount;
-  float error = center - 15.5f;
-  float correction = constrain(error / 8.0f, -1.0f, 1.0f);
-  driveCartesian(correction, 1.0f, 0.0f);
+  float error = center - LINE_CENTER_INDEX;
+  if (fabs(error) <= LINE_CENTER_DEADBAND) {
+    error = 0.0f;
+  }
+  float correction = constrain(error * LINE_CORRECTION_GAIN,
+                               -LINE_CORRECTION_MAX,
+                               LINE_CORRECTION_MAX);
+  float ySpeed = 1.0f - fabs(correction) * 0.15f;
+  driveCartesian(correction, ySpeed, 0.0f);
 }
 
 void processTextCommand(String command) {
@@ -1098,6 +1109,8 @@ void loop() {
     driveStop();
     Serial.println("Failsafe: timeout, roda berhenti.");
   }
+
+  serviceLineFollow();
 
   // Jangan memakai delay beberapa milidetik karena akan membatasi
   // frekuensi pulsa STEP. yield() tetap memberi waktu pada sistem ESP32.
