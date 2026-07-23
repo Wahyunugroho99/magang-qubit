@@ -1,14 +1,23 @@
-# ShuttleBot + ESPServo
+# 🤖 ShuttleBot + ESPServo
 
-Panduan singkat penggunaan dua ESP32:
+Sistem ini menggunakan **dua buah ESP32** yang saling berkomunikasi melalui **UART (Serial2)**.
 
-- `shutlebot` = robot utama, Bluetooth, roda, pelontar, sudut.
-- `SERVO` = kontrol servo arm, gripper, dan conveyor.
-- Komunikasi antar ESP32 memakai UART `Serial2`.
+## 📦 Arsitektur Sistem
 
-## 1. Upload Program
+| Board                  | Fungsi                                                                             |
+| ---------------------- | ---------------------------------------------------------------------------------- |
+| **ShuttleBot (ESP32)** | Kontrol robot utama, Bluetooth, roda omni, pelontar, dan pengaturan sudut pelontar |
+| **ESPServo (ESP32)**   | Kontrol lengan servo, gripper, dan conveyor                                        |
 
-Upload masing-masing folder PlatformIO:
+Komunikasi antar board menggunakan **UART Serial2**.
+
+---
+
+# 🚀 Upload Program
+
+Upload firmware untuk masing-masing board.
+
+### Menggunakan PlatformIO CLI
 
 ```bash
 cd SERVO
@@ -18,124 +27,257 @@ cd ../shutlebot
 ~/.platformio/penv/bin/pio run --target upload
 ```
 
-Jika lewat VS Code PlatformIO, buka folder masing-masing lalu klik **Upload**.
+### Menggunakan VS Code
 
-## 2. Wiring UART Antar ESP32
+1. Buka folder **SERVO**.
+2. Klik **Upload**.
+3. Setelah selesai, buka folder **shutlebot**.
+4. Klik **Upload**.
 
-Hubungkan silang TX/RX:
+---
 
-| ShuttleBot | ESPServo | Fungsi |
-| --- | --- | --- |
-| GPIO0 TX | GPIO16 RX2 | kirim command ke servo |
-| GPIO34 RX | GPIO17 TX2 | terima status dari servo |
-| GND | GND | ground bersama |
+# 🔌 Wiring UART Antar ESP32
 
-Catatan:
+Hubungkan kedua ESP32 secara silang.
 
-- Semua GND wajib tersambung: ESP32 ShuttleBot, ESP32 Servo, driver motor, supply.
-- GPIO0 adalah pin boot ESP32. Jika sulit upload/boot, lepas kabel GPIO0 sementara atau pindahkan TX ShuttleBot ke pin output kosong lain lalu ubah kode.
-- Jangan sambungkan langsung sumber motor/servo ke 5V ESP32. Pakai supply terpisah sesuai arus motor/servo.
+| ShuttleBot  | ESPServo     | Fungsi                        |
+| ----------- | ------------ | ----------------------------- |
+| GPIO0 (TX)  | GPIO16 (RX2) | Mengirim command ke ESPServo  |
+| GPIO34 (RX) | GPIO17 (TX2) | Menerima status dari ESPServo |
+| GND         | GND          | Ground bersama                |
 
-## 3. Bluetooth
+> **Penting**
+>
+> * Semua **GND** harus tersambung menjadi satu (ESP32, driver motor, servo, dan power supply).
+> * GPIO0 merupakan pin boot ESP32. Jika upload gagal, lepaskan kabel pada GPIO0 sementara atau gunakan pin TX lain dan sesuaikan program.
+> * Jangan memberi daya motor atau servo dari pin **5V ESP32**. Gunakan power supply terpisah dengan arus yang memadai.
+
+---
+
+# 📱 Koneksi Bluetooth
 
 1. Nyalakan ShuttleBot.
-2. Pair dari HP/laptop ke Bluetooth bernama `OmniBot-ESP32`.
-3. Buka aplikasi Bluetooth Serial.
-4. Kirim command huruf sesuai tabel.
+2. Pair perangkat dengan Bluetooth bernama:
 
-## 4. Command Servo + Conveyor
+```
+OmniBot-ESP32
+```
 
-Command ini dikirim dari Bluetooth ke ShuttleBot, lalu ShuttleBot meneruskan ke ESPServo.
+3. Buka aplikasi **Bluetooth Serial Terminal**.
+4. Kirim command sesuai tabel berikut.
 
-| Command | Fungsi |
-| --- | --- |
-| `Y` | Conveyor hidup terus |
-| `W` | Servo ambil jalan 1 kali |
-| `N` | Conveyor mati, servo kembali netral |
-| `T` | Arm naik manual |
-| `O` | Gripper tutup manual |
-| `?` | Cek status ESPServo |
+---
 
-Cara pakai utama:
+# 🎮 Command Servo & Conveyor
 
-1. Kirim `Y` untuk menyalakan conveyor terus.
-2. Kirim `W` saat ingin servo ambil 1 kali.
-3. Kirim `N` untuk mematikan conveyor dan reset servo.
+Command dikirim melalui Bluetooth ke ShuttleBot, kemudian diteruskan ke ESPServo.
 
-## 5. Command Gerak ShuttleBot
+| Command | Fungsi                                          |
+| ------- | ----------------------------------------------- |
+| **Y**   | Conveyor ON (berjalan terus)                    |
+| **W**   | Servo melakukan satu siklus pengambilan         |
+| **N**   | Conveyor OFF dan servo kembali ke posisi netral |
+| **T**   | Arm naik manual                                 |
+| **O**   | Gripper menutup manual                          |
+| **?**   | Meminta status ESPServo                         |
 
-| Command | Fungsi |
-| --- | --- |
-| `F` | maju |
-| `B` | mundur |
-| `L` | geser kiri |
-| `R` | geser kanan |
-| `G` | diagonal maju-kiri |
-| `I` | diagonal maju-kanan |
-| `H` | diagonal mundur-kiri |
-| `J` | diagonal mundur-kanan |
-| `Q` | putar kiri |
-| `E` | putar kanan |
-| `S` | stop roda |
-| `0`..`9` | atur speed roda |
-| `+` | tambah speed roda |
-| `-` | kurangi speed roda |
+### Alur Operasi
 
-## 6. Command Pelontar
+```text
+Y  → Conveyor berjalan
+↓
+W  → Servo mengambil objek satu kali
+↓
+N  → Conveyor berhenti dan servo kembali ke posisi awal
+```
 
-| Command | Fungsi |
-| --- | --- |
-| `K` | pelontar ON |
-| `M` | pelontar OFF |
-| `P0`..`P9` | level speed pelontar |
-| `]` | tambah speed pelontar |
-| `[` | kurangi speed pelontar |
+---
 
-## 7. Command Sudut Pelontar
+# 🚗 Command Gerak ShuttleBot
 
-| Command | Fungsi |
-| --- | --- |
-| `Z` | homing sudut ke limit bawah |
-| `A0`..`A43` | set sudut absolut |
-| `U` | sudut naik 1 derajat |
-| `D` | sudut turun 1 derajat |
-| `C` | stop gerakan sudut |
-| `V` | tampilkan status sudut |
+| Command | Fungsi                |
+| ------- | --------------------- |
+| F       | Maju                  |
+| B       | Mundur                |
+| L       | Geser kiri            |
+| R       | Geser kanan           |
+| G       | Diagonal maju-kiri    |
+| I       | Diagonal maju-kanan   |
+| H       | Diagonal mundur-kiri  |
+| J       | Diagonal mundur-kanan |
+| Q       | Putar kiri            |
+| E       | Putar kanan           |
+| S       | Stop                  |
+| 0–9     | Atur kecepatan roda   |
+| +       | Tambah kecepatan      |
+| -       | Kurangi kecepatan     |
 
-Contoh:
+---
 
-- `A30` = sudut pelontar ke 30 derajat.
-- `A43` = sudut pelontar ke 43 derajat.
+# 🎯 Command Pelontar
 
-## 8. Emergency Stop
+| Command | Fungsi                        |
+| ------- | ----------------------------- |
+| K       | Pelontar ON                   |
+| M       | Pelontar OFF                  |
+| P0–P9   | Atur level kecepatan pelontar |
+| ]       | Tambah kecepatan              |
+| [       | Kurangi kecepatan             |
 
-| Command | Fungsi |
-| --- | --- |
-| `X` | stop roda, pelontar, sudut, lalu kirim `N` ke ESPServo |
+---
 
-Gunakan `X` jika robot tidak terkendali.
+# 📐 Command Sudut Pelontar
 
-## 9. Troubleshooting
+| Command | Fungsi                 |
+| ------- | ---------------------- |
+| Z       | Homing ke limit bawah  |
+| A0–A43  | Atur sudut absolut     |
+| U       | Naik 1°                |
+| D       | Turun 1°               |
+| C       | Hentikan gerakan sudut |
+| V       | Tampilkan status sudut |
 
-### Servo tidak bergerak
+### Contoh
 
-- Cek supply servo cukup kuat.
-- Cek GND servo supply tersambung ke GND ESP32.
-- Cek kabel ShuttleBot TX ke ESPServo RX2.
-- Kirim `?` dari Bluetooth, lihat apakah ada balasan `ESPServo OK`.
+```text
+A30
+```
 
-### Conveyor tidak hidup
+Menggerakkan pelontar ke **30°**.
 
-- Kirim `Y`.
-- Cek wiring L298N: `ENA GPIO25`, `IN1 GPIO32`, `IN2 GPIO33` di ESPServo.
-- Cek supply motor conveyor.
+```text
+A43
+```
 
-### ESP32 sulit upload
+Menggerakkan pelontar ke **43°**.
 
-- Lepas kabel dari `GPIO0` ShuttleBot saat upload.
-- Setelah upload selesai, pasang lagi.
+---
 
-### Bluetooth tidak muncul
+# 🛑 Emergency Stop
 
-- Pastikan board memakai ESP32 klasik/WROOM, bukan ESP32-S3/C3 tanpa Bluetooth Classic SPP.
-- Nama Bluetooth: `OmniBot-ESP32`.
+| Command | Fungsi                                                                                     |
+| ------- | ------------------------------------------------------------------------------------------ |
+| **X**   | Menghentikan seluruh sistem (roda, pelontar, sudut) dan mengirim command **N** ke ESPServo |
+
+Gunakan command ini ketika robot mengalami kondisi tidak terkendali.
+
+---
+
+# 🔍 Troubleshooting
+
+## Servo Tidak Bergerak
+
+✅ Pastikan supply servo mencukupi.
+
+✅ Pastikan ground servo dan ESP32 tersambung.
+
+✅ Periksa koneksi:
+
+```
+ShuttleBot TX
+        │
+        ▼
+ESPServo RX2
+```
+
+✅ Kirim command:
+
+```
+?
+```
+
+Jika komunikasi normal, ESPServo akan membalas:
+
+```
+ESPServo OK
+```
+
+---
+
+## Conveyor Tidak Berjalan
+
+Pastikan command berikut sudah dikirim:
+
+```
+Y
+```
+
+Periksa wiring L298N:
+
+| Pin | GPIO   |
+| --- | ------ |
+| ENA | GPIO25 |
+| IN1 | GPIO32 |
+| IN2 | GPIO33 |
+
+Pastikan supply motor conveyor mencukupi.
+
+---
+
+## ESP32 Sulit Di-upload
+
+* Lepaskan kabel pada **GPIO0** ShuttleBot.
+* Upload ulang firmware.
+* Pasang kembali kabel setelah proses upload selesai.
+
+---
+
+## Bluetooth Tidak Muncul
+
+Pastikan menggunakan **ESP32 Classic / WROOM** yang mendukung Bluetooth Classic (SPP).
+
+Bluetooth akan muncul dengan nama:
+
+```
+OmniBot-ESP32
+```
+
+---
+
+# 📋 Ringkasan Command
+
+## ShuttleBot
+
+| Fitur     | Command           |
+| --------- | ----------------- |
+| Gerak     | F B L R G H I J S |
+| Speed     | 0–9 + -           |
+| Pelontar  | K M P0–P9 [ ]     |
+| Sudut     | Z A0–A43 U D C V  |
+| Emergency | X                 |
+
+## ESPServo
+
+| Fitur       | Command |
+| ----------- | ------- |
+| Conveyor ON | Y       |
+| Servo Ambil | W       |
+| Reset Servo | N       |
+| Arm Naik    | T       |
+| Gripper     | O       |
+| Status      | ?       |
+
+---
+
+## 🏁 Alur Pengoperasian Singkat
+
+```text
+Upload Firmware
+        │
+        ▼
+Hubungkan UART + GND
+        │
+        ▼
+Nyalakan Robot
+        │
+        ▼
+Pair Bluetooth "OmniBot-ESP32"
+        │
+        ▼
+Kirim Command
+        │
+        ├── Gerak Robot
+        ├── Pelontar
+        ├── Sudut
+        └── Servo & Conveyor
+```
