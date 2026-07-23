@@ -180,6 +180,13 @@ bool launcherRunning = false;
 
 char lastMotionCommand = 'S';
 bool waitingLauncherLevel = false;
+bool lineFollowMode = false;
+uint16_t lineRightBinary = 0;
+uint16_t lineLeftBinary = 0;
+bool lineTelemetryValid = false;
+char textCommandBuffer[64];
+uint8_t textCommandLength = 0;
+bool textCommandActive = false;
 
 // ============================================================
 // KONFIGURASI MOTOR SUDUT NEMA17 + DRIVER STEP/DIR
@@ -246,7 +253,7 @@ constexpr uint32_t ANGLE_INPUT_TIMEOUT_MS = 150;
 
 // Perintah yang diteruskan ke ESPServo.
 // Y = conveyor ON, W = ambil 1x, T/O/N = servo manual.
-const String validServoCommands = "YWTON?";
+const String validServoCommands = "YWTON?@#*<>.,";
 
 // Timeout gerakan roda opsional.
 constexpr bool ENABLE_COMMAND_TIMEOUT = false;
@@ -268,6 +275,9 @@ bool minLimitActive() {
   return digitalRead(ANGLE_MIN_LIMIT_PIN) == LIMIT_ACTIVE_STATE;
 }
 
+void driveStop();
+void driveCartesian(float x, float y, float rot);
+
 void sendBoth(const String &message) {
   Serial.println(message);
   SerialBT.println(message);
@@ -280,13 +290,113 @@ void sendServoCommand(char command) {
 }
 
 void serviceServoUart() {
+  static String uartLine;
+
   while (Serial2.available()) {
     char input = static_cast<char>(Serial2.read());
     Serial.write(input);
 
+    if (input == '\n' || input == '\r') {
+      if (uartLine.length() > 0) {
+        if (uartLine.startsWith("LINE ")) {
+          int rightIndex = uartLine.indexOf("kanan=");
+          int leftIndex = uartLine.indexOf("kiri=");
+          int spaceAfterRight = uartLine.indexOf(' ', rightIndex);
+
+          if (rightIndex >= 0 && leftIndex >= 0 && spaceAfterRight > rightIndex) {
+            String rightBits = uartLine.substring(rightIndex + 6, spaceAfterRight);
+            String leftBits = uartLine.substring(leftIndex + 5);
+            rightBits.trim();
+            leftBits.trim();
+
+            if (rightBits.length() == 16 && leftBits.length() == 16) {
+              lineRightBinary = strtoul(rightBits.c_str(), nullptr, 2);
+              lineLeftBinary = strtoul(leftBits.c_str(), nullptr, 2);
+              lineTelemetryValid = true;
+            }
+          }
+        }
+
+        uartLine = "";
+      }
+    } else {
+      uartLine += input;
+    }
+
     if (SerialBT.hasClient()) {
       SerialBT.write(input);
     }
+  }
+}
+
+void setLineFollowMode(bool enabled) {
+  lineFollowMode = enabled;
+
+  if (!enabled) {
+    driveStop();
+  }
+
+  sendBoth(enabled ? "MODE: LINE" : "MODE: MANUAL");
+}
+
+void serviceLineFollow() {
+  if (!lineFollowMode || !lineTelemetryValid) {
+    return;
+  }
+
+  uint32_t merged = (static_cast<uint32_t>(lineLeftBinary) << 16) | lineRightBinary;
+
+  if (merged == 0) {
+    driveStop();
+    return;
+  }
+
+  uint8_t activeCount = 0;
+  uint16_t weightedIndex = 0;
+
+  for (uint8_t index = 0; index < 32; ++index) {
+    if (merged & (1UL << index)) {
+      ++activeCount;
+      weightedIndex += index;
+    }
+  }
+
+  float center = static_cast<float>(weightedIndex) / activeCount;
+  float error = center - 15.5f;
+  float correction = constrain(error / 8.0f, -1.0f, 1.0f);
+  driveCartesian(correction, 1.0f, 0.0f);
+}
+
+void processTextCommand(String command) {
+  command.trim();
+  command.toUpperCase();
+
+  if (command == "$MANUAL" || command == "$MODE MANUAL") {
+    setLineFollowMode(false);
+    return;
+  }
+
+  if (command == "$LINE" || command == "$MODE LINE") {
+    setLineFollowMode(true);
+    return;
+  }
+
+  if (command == "$STOP") {
+    driveStop();
+    sendBoth("STOP");
+    return;
+  }
+
+  if (command == "$CAL WHITE ALL") { sendServoCommand('@'); return; }
+  if (command == "$CAL GREEN ALL") { sendServoCommand('#'); return; }
+  if (command == "$CAL WHITE RIGHT") { sendServoCommand('>'); return; }
+  if (command == "$CAL GREEN RIGHT") { sendServoCommand('.'); return; }
+  if (command == "$CAL WHITE LEFT") { sendServoCommand('<'); return; }
+  if (command == "$CAL GREEN LEFT") { sendServoCommand(','); return; }
+  if (command == "$LINE READ") { sendServoCommand('*'); return; }
+
+  if (command == "$HELP") {
+    sendBoth("CMD: $MANUAL, $LINE, $STOP, $CAL WHITE ALL, $CAL GREEN ALL, $LINE READ");
   }
 }
 
@@ -793,6 +903,7 @@ void processCommand(char command) {
   const String validMotionCommands = "FBLRGIHJQES";
 
   if (validMotionCommands.indexOf(command) >= 0) {
+    lineFollowMode = false;
     lastMotionCommand = command;
     executeMotion(command);
 
@@ -806,6 +917,29 @@ void processCommand(char command) {
 
 // Menerima input Bluetooth/Serial dan mendukung A30, A45.5, dan seterusnya.
 void processInputByte(char input) {
+  if (textCommandActive) {
+    if (input == '\r' || input == '\n') {
+      textCommandBuffer[textCommandLength] = '\0';
+      processTextCommand(String(textCommandBuffer));
+      textCommandActive = false;
+      textCommandLength = 0;
+      return;
+    }
+
+    if (textCommandLength < sizeof(textCommandBuffer) - 1) {
+      textCommandBuffer[textCommandLength++] = input;
+    }
+
+    return;
+  }
+
+  if (input == '$') {
+    textCommandActive = true;
+    textCommandLength = 0;
+    textCommandBuffer[textCommandLength++] = '$';
+    return;
+  }
+
   // Saat sedang membaca angka setelah huruf A.
   if (waitingAngleValue) {
     if ((input >= '0' && input <= '9') ||
@@ -914,6 +1048,7 @@ void setup() {
   Serial.println("Sudut: Z home 1 switch, A0..A43, U naik, D turun, C stop, V status");
   Serial.println("ESPServo: Y conveyor ON, W ambil 1x, N stop+netral, T/O manual, ? status");
   Serial.println("Emergency stop: X");
+  Serial.println("Android: $MANUAL, $LINE, $STOP, $CAL WHITE ALL, $CAL GREEN ALL, $LINE READ");
 
   // Tunggu sebentar agar pembacaan limit switch stabil setelah ESP32 menyala.
   delay(250);
